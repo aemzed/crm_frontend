@@ -19,9 +19,7 @@ CoolAlert.initializeStyles({
   closeBtn: 'rgba(32, 30, 29, 0.6)',
 })
 
-// ponytail: hardcoded to localhost:4000 — this is a two-service local dev setup,
-// not a deployed app. Move to an env var when there's an actual prod target.
-const API = 'http://localhost:4000'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 const TOKEN_KEY = 'flowdesk_token'
 const VIEW_KEY = 'flowdesk_view'
 let authToken = localStorage.getItem(TOKEN_KEY) || null
