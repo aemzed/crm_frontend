@@ -325,7 +325,9 @@ export default function App() {
       patch({ loginError: err.message, loginLoading: false })
     }
   }
-  const doLogout = () => {
+  const doLogout = async () => {
+    const result = await confirmDialog('Sign out?', 'You\'ll need to log in again to access Flowdesk.')
+    if (!result.isConfirmed) return
     setAuthToken(null)
     window.location.reload()
   }
