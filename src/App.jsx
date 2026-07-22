@@ -173,10 +173,10 @@ function buildWeekDays(events, weekStartISO) {
 
 const DEMO_ACCOUNTS = [
   { email: 'amara@flowdesk.io', role: 'Admin' },
-  { email: 'jonas@flowdesk.io', role: 'Manager' },
-  { email: 'lena@flowdesk.io', role: 'Rep' },
-  { email: 'devon@flowdesk.io', role: 'Rep' },
-  { email: 'nadia@flowdesk.io', role: 'Analyst' },
+  { email: 'jonas@flowdesk.io', role: 'Lead Sales' },
+  { email: 'lena@flowdesk.io', role: 'Sales' },
+  { email: 'devon@flowdesk.io', role: 'Sales' },
+  { email: 'nadia@flowdesk.io', role: 'Sales' },
 ]
 
 function LoginScreen({ email, password, error, loading, onEmail, onPassword, onSubmit }) {
@@ -716,8 +716,8 @@ export default function App() {
   // Role-based UI gating — mirrors the backend's ROLE_PERMS. The server re-checks
   // every request regardless; this is convenience, not the security boundary.
   const role = S.currentUser.role
-  const isAdminOrManager = role === 'admin' || role === 'manager'
-  const canWrite = role !== 'analyst'
+  const isAdminOrManager = role === 'admin' || role === 'lead_sales'
+  const canWrite = true // ponytail: no read-only role anymore, analyst was retired
 
   const navItem = (id, name, icon) => ({ id, name, icon, current: S.view === id ? 'page' : undefined, onClick: (e) => { e.preventDefault(); patch({ view: id, selectedId: null }) } })
   const nav = [
