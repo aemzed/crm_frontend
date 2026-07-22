@@ -541,7 +541,7 @@ export default function App() {
   const S = state
 
   if (!S.authChecked) {
-    return <div style={{ padding: 40, fontFamily: 'system-ui' }}>Loading…</div>
+    return <div className="app-spinner"><i className="ph-duotone ph-spinner"></i></div>
   }
   if (!S.currentUser) {
     return (
@@ -555,7 +555,7 @@ export default function App() {
     return <div style={{ padding: 40, fontFamily: 'system-ui' }}>Couldn't reach the API at {API} — {S.loadError}. Is the backend running (`docker-compose up`)?</div>
   }
   if (!S.loaded) {
-    return <div style={{ padding: 40, fontFamily: 'system-ui' }}>Loading Flowdesk…</div>
+    return <div className="app-spinner"><i className="ph-duotone ph-spinner"></i></div>
   }
 
   const q = S.query.trim().toLowerCase()
