@@ -1,0 +1,23 @@
+name: Deploy frontend
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cat > /home/crm/crm_frontend/.env <<'ENVEOF'
+            VITE_API_URL=https://crm-be.zonakasir.com
+            ENVEOF
+            cd /home/crm/crm_frontend
+            git pull origin main
+            npm ci
+            npm run build
