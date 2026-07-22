@@ -90,11 +90,14 @@ const PRESETS = {
 // 2026, same as the backend. Swap for a real clock once this isn't demo data.
 const TODAY = '2026-07-21'
 
-const fmt = (n) => (n >= 1000000 ? '$' + (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1000 ? '$' + Math.round(n / 1000) + 'k' : '$' + n)
+const fmtUSD = (n) => (n >= 1000000 ? '$' + (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1000 ? '$' + Math.round(n / 1000) + 'k' : '$' + n)
+const fmtIDR = (n) => (n >= 1e9 ? 'Rp' + (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1e6 ? 'Rp' + (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'jt' : n >= 1e3 ? 'Rp' + Math.round(n / 1e3) + 'rb' : 'Rp' + Math.round(n))
+// ponytail: static fallback if the live rate fetch fails/is slow — update if it drifts far from market
+const FALLBACK_USD_IDR = 16300
 const accentVar = (stage) => (stage === 'won' ? 'var(--color-accent-2)' : 'var(--color-accent)')
 const avatarStyle = 'width:26px;height:26px;border-radius:50%;background:var(--color-neutral-200);color:var(--color-neutral-800);display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:11px;flex-shrink:0'
 
-function decorate(d, owners) {
+function decorate(d, owners, fmt) {
   const o = owners[d.owner] || { name: '—', initials: '?' }
   const st = STAGE_DEFS.find((s) => s.id === d.stage)
   const acc = accentVar(d.stage)
@@ -218,6 +221,8 @@ const INITIAL_STATE = {
   loginError: '',
   loginLoading: false,
   view: 'dashboard',
+  currency: 'usd',
+  exchangeRate: null,
   googleConnected: false,
   googleSyncing: false,
   query: '',
@@ -271,6 +276,15 @@ export default function App() {
   // Remember the current screen across refreshes — cleared on logout (setAuthToken)
   // so a fresh login always lands on the default (Dashboard), not the last screen.
   useEffect(() => { localStorage.setItem(VIEW_KEY, state.view) }, [state.view])
+
+  // Live USD->IDR rate for the currency toggle — same source data Google's converter
+  // widget draws from. Falls back to FALLBACK_USD_IDR if the fetch fails.
+  useEffect(() => {
+    fetch('https://open.er-api.com/v6/latest/USD')
+      .then((r) => r.json())
+      .then((d) => { if (d.rates?.IDR) patch({ exchangeRate: d.rates.IDR }) })
+      .catch(() => {})
+  }, [])
 
   // Step 1: on mount, see if a saved token still checks out before rendering anything else.
   useEffect(() => {
@@ -539,6 +553,7 @@ export default function App() {
 
   // ---- derived view (recomputed every render, mirrors the source's renderVals()) ----
   const S = state
+  const fmt = (n) => S.currency === 'idr' ? fmtIDR(n * (S.exchangeRate || FALLBACK_USD_IDR)) : fmtUSD(n)
 
   if (!S.authChecked) {
     return <div className="app-spinner"><i className="ph-duotone ph-spinner"></i></div>
@@ -565,7 +580,7 @@ export default function App() {
   const columns = STAGE_DEFS.map((st) => {
     const acc = accentVar(st.id)
     const ds = S.deals.filter((d) => d.stage === st.id && match(d)).map((d) => {
-      const dd = decorate(d, S.owners)
+      const dd = decorate(d, S.owners, fmt)
       const dragging = S.draggedId === d.id
       return {
         ...dd,
@@ -694,7 +709,7 @@ export default function App() {
   if (S.selectedId != null) {
     const raw = S.deals.find((d) => d.id === S.selectedId)
     if (raw) {
-      const dd = decorate(raw, S.owners)
+      const dd = decorate(raw, S.owners, fmt)
       const chat = S.chatter[S.selectedId] || []
       const tl = [...chat, ...baseTimeline(raw)].map((t) => ({ ...t, dotStyle: 'width:28px;height:28px;border-radius:50%;background:var(--color-accent-100);color:var(--color-accent-800);display:flex;align-items:center;justify-content:center;flex-shrink:0', lineStyle: 'width:2px;flex:1;background:var(--color-divider);min-height:12px' }))
       const schedTypes = ['Call', 'Meeting', 'Email', 'Quote'].map((t) => ({
@@ -753,6 +768,10 @@ export default function App() {
             ))}
           </nav>
           <div style={sx('margin-left:auto;display:flex;align-items:center;gap:var(--space-3)')}>
+            <div className="seg" title={S.exchangeRate ? `1 USD ≈ ${Math.round(S.exchangeRate).toLocaleString('id-ID')} IDR` : 'Fetching live rate…'}>
+              <label className="seg-opt"><input type="radio" name="currency" checked={S.currency === 'usd'} onChange={() => patch({ currency: 'usd' })} />$</label>
+              <label className="seg-opt"><input type="radio" name="currency" checked={S.currency === 'idr'} onChange={() => patch({ currency: 'idr' })} />Rp</label>
+            </div>
             <div style={sx('position:relative')}>
               <i className="ph-duotone ph-magnifying-glass" style={sx('position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--color-neutral-600);font-size:16px;pointer-events:none')}></i>
               <input className="input" value={S.query} onChange={(e) => patch({ query: e.target.value })} placeholder="Search…" style={sx('padding-left:30px;width:min(180px,40vw);min-height:34px')} />
