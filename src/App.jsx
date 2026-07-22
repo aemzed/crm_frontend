@@ -22,6 +22,7 @@ CoolAlert.initializeStyles({
 const API = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 const TOKEN_KEY = 'flowdesk_token'
 const VIEW_KEY = 'flowdesk_view'
+const CURRENCY_KEY = 'flowdesk_currency'
 let authToken = localStorage.getItem(TOKEN_KEY) || null
 function setAuthToken(t) {
   authToken = t
@@ -221,7 +222,7 @@ const INITIAL_STATE = {
   loginError: '',
   loginLoading: false,
   view: 'dashboard',
-  currency: 'usd',
+  currency: 'idr',
   exchangeRate: null,
   googleConnected: false,
   googleSyncing: false,
@@ -270,12 +271,17 @@ const INITIAL_STATE = {
 }
 
 export default function App() {
-  const [state, setState] = useState(() => ({ ...INITIAL_STATE, view: localStorage.getItem(VIEW_KEY) || INITIAL_STATE.view }))
+  const [state, setState] = useState(() => ({
+    ...INITIAL_STATE,
+    view: localStorage.getItem(VIEW_KEY) || INITIAL_STATE.view,
+    currency: localStorage.getItem(CURRENCY_KEY) || INITIAL_STATE.currency,
+  }))
   const patch = (upd) => setState((s) => ({ ...s, ...(typeof upd === 'function' ? upd(s) : upd) }))
 
   // Remember the current screen across refreshes — cleared on logout (setAuthToken)
   // so a fresh login always lands on the default (Dashboard), not the last screen.
   useEffect(() => { localStorage.setItem(VIEW_KEY, state.view) }, [state.view])
+  useEffect(() => { localStorage.setItem(CURRENCY_KEY, state.currency) }, [state.currency])
 
   // Live USD->IDR rate for the currency toggle — same source data Google's converter
   // widget draws from. Falls back to FALLBACK_USD_IDR if the fetch fails.
