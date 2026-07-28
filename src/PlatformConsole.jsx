@@ -22,19 +22,40 @@ const STATUS_TAG = { active: "tag tag-accent", trial: "tag tag-neutral", suspend
 // Cross-tenant admin surface for the platform super user. Every fetch here hits
 // /api/platform/* (requirePlatform on the backend); a company admin never reaches
 // this component because App renders it only when currentUser.isPlatform.
+const emptySmtp = { smtp_host: "", smtp_port: 587, smtp_user: "", smtp_pass: "", smtp_from: "" };
+
 export default function PlatformConsole({ api, user, onLogout, notify }) {
   const [orgs, setOrgs] = useState(null);
   const [plans, setPlans] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [busyId, setBusyId] = useState(null);
+  const [smtp, setSmtp] = useState(emptySmtp);
+  const [hasPassword, setHasPassword] = useState(false);
+  const [savingSmtp, setSavingSmtp] = useState(false);
 
   const load = async () => {
-    const [o, p, inv] = await Promise.all([
-      api("/api/platform/orgs"), api("/api/platform/plans"), api("/api/platform/invoices"),
+    const [o, p, inv, s] = await Promise.all([
+      api("/api/platform/orgs"), api("/api/platform/plans"), api("/api/platform/invoices"), api("/api/platform/settings"),
     ]);
     setOrgs(o); setPlans(p); setInvoices(inv);
+    setSmtp({ smtp_host: s.smtp_host || "", smtp_port: s.smtp_port || 587, smtp_user: s.smtp_user || "", smtp_pass: "", smtp_from: s.smtp_from || "" });
+    setHasPassword(s.has_password);
   };
   useEffect(() => { load().catch(() => setOrgs([])); }, []);
+
+  const saveSmtp = async (e) => {
+    e.preventDefault();
+    setSavingSmtp(true);
+    try {
+      await api("/api/platform/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(smtp) });
+      await load();
+      notify("SMTP settings saved");
+    } catch {
+      notify("Failed to save SMTP settings", "error");
+    } finally {
+      setSavingSmtp(false);
+    }
+  };
 
   const patchOrg = async (id, body, msg) => {
     setBusyId(id);
@@ -164,6 +185,42 @@ export default function PlatformConsole({ api, user, onLogout, notify }) {
             </table>
           </div>
         )}
+
+        {/* SMTP settings — DB-backed, no redeploy needed to change these */}
+        <h2 style={sx("margin:var(--space-8) 0 var(--space-2)")}>Email (SMTP)</h2>
+        <p className="text-muted" style={sx("font-size:13px;margin:0 0 var(--space-3);max-width:60ch")}>
+          Used to send signup and password-reset codes. Leave the host blank to keep logging OTPs to the server console instead of emailing them.
+        </p>
+        <form onSubmit={saveSmtp} style={sx("display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--space-3);max-width:900px")}>
+          <label style={sx("display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--color-neutral-700)")}>
+            Host
+            <input className="input" value={smtp.smtp_host} placeholder="smtp.gmail.com"
+              onChange={(e) => setSmtp({ ...smtp, smtp_host: e.target.value })} />
+          </label>
+          <label style={sx("display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--color-neutral-700)")}>
+            Port
+            <input className="input" type="number" value={smtp.smtp_port}
+              onChange={(e) => setSmtp({ ...smtp, smtp_port: Number(e.target.value) || 587 })} />
+          </label>
+          <label style={sx("display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--color-neutral-700)")}>
+            Username
+            <input className="input" value={smtp.smtp_user} placeholder="you@gmail.com"
+              onChange={(e) => setSmtp({ ...smtp, smtp_user: e.target.value })} />
+          </label>
+          <label style={sx("display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--color-neutral-700)")}>
+            Password {hasPassword && <span className="text-muted">(set — leave blank to keep it)</span>}
+            <input className="input" type="password" value={smtp.smtp_pass} placeholder={hasPassword ? "••••••••" : ""}
+              onChange={(e) => setSmtp({ ...smtp, smtp_pass: e.target.value })} />
+          </label>
+          <label style={sx("display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--color-neutral-700);grid-column:1 / -1")}>
+            From
+            <input className="input" value={smtp.smtp_from} placeholder="Flowdesk <you@gmail.com>"
+              onChange={(e) => setSmtp({ ...smtp, smtp_from: e.target.value })} />
+          </label>
+          <button className="btn btn-primary" type="submit" disabled={savingSmtp} style={sx("justify-self:start")}>
+            {savingSmtp ? "Saving…" : "Save SMTP settings"}
+          </button>
+        </form>
       </div>
     </div>
   );
