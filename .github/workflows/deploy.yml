@@ -19,6 +19,10 @@ jobs:
             VITE_API_URL=https://crm-be.zonakasir.com
             ENVEOF
             cd /home/crm/crm_frontend
-            git pull origin main
+            # Deploy target only — always mirror origin/main exactly rather than
+            # merging, so drift on the server (e.g. an old manual `npm install`
+            # rewriting package-lock.json) never blocks a deploy.
+            git fetch origin main
+            git reset --hard origin/main
             npm ci
             npm run build
