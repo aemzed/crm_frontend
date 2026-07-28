@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import CoolAlert from 'coolalertjs/dist/coolalert.js'
+import LandingPage from './LandingPage.jsx'
+import SignInScreen from './SignInScreen.jsx'
+import PlatformConsole from './PlatformConsole.jsx'
 
 // Theme CoolAlert to the Flowdesk palette once, at load — literal hex (not var())
 // since the library does its own color math (hover shades etc.) that can't
@@ -23,14 +26,22 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 const TOKEN_KEY = 'flowdesk_token'
 const VIEW_KEY = 'flowdesk_view'
 const CURRENCY_KEY = 'flowdesk_currency'
+const PREAUTH_VIEW_KEY = 'flowdesk_preauth_view'
+const PREAUTH_MODE_KEY = 'flowdesk_preauth_mode'
 let authToken = localStorage.getItem(TOKEN_KEY) || null
 function setAuthToken(t) {
   authToken = t
   // Clearing the token (logout / expired session) also drops the remembered
   // screen, so the next login lands on the default (Dashboard) instead of
   // wherever the previous session happened to leave off.
-  if (t) localStorage.setItem(TOKEN_KEY, t)
-  else { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(VIEW_KEY) }
+  if (t) {
+    localStorage.setItem(TOKEN_KEY, t)
+    localStorage.removeItem(PREAUTH_VIEW_KEY)
+    localStorage.removeItem(PREAUTH_MODE_KEY)
+  } else {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(VIEW_KEY)
+  }
 }
 async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) }
@@ -175,50 +186,19 @@ function buildWeekDays(events, weekStartISO) {
   })
 }
 
-const DEMO_ACCOUNTS = [
-  { email: 'amara@flowdesk.io', role: 'Admin' },
-  { email: 'jonas@flowdesk.io', role: 'Lead Sales' },
-  { email: 'lena@flowdesk.io', role: 'Sales' },
-  { email: 'devon@flowdesk.io', role: 'Sales' },
-  { email: 'nadia@flowdesk.io', role: 'Sales' },
-]
-
-function LoginScreen({ email, password, error, loading, onEmail, onPassword, onSubmit }) {
-  return (
-    <div style={{ minHeight: '100vh', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--color-bg)', color: 'var(--color-text)', padding: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-        <span style={sx('font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:34px;letter-spacing:-0.02em')}>Flowdesk</span>
-        <span style={sx('font-size:12px;letter-spacing:0.16em;text-transform:uppercase;color:var(--color-neutral-600)')}>Sales CRM</span>
-      </div>
-      <p className="text-muted" style={{ margin: '6px 0 28px', fontSize: 14 }}>Sign in to your sales desk.</p>
-      <form onSubmit={(e) => { e.preventDefault(); onSubmit() }} className="card elev-md" style={{ width: 340, padding: 28, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div>
-          <label style={{ fontSize: 12, color: 'var(--color-neutral-700)', display: 'block', marginBottom: 4 }}>Email</label>
-          <input className="input" type="email" value={email} onChange={(e) => onEmail(e.target.value)} placeholder="you@flowdesk.io" autoFocus style={{ width: '100%' }} />
-        </div>
-        <div>
-          <label style={{ fontSize: 12, color: 'var(--color-neutral-700)', display: 'block', marginBottom: 4 }}>Password</label>
-          <input className="input" type="password" value={password} onChange={(e) => onPassword(e.target.value)} placeholder="••••••••" style={{ width: '100%' }} />
-        </div>
-        {error && <div style={{ fontSize: 13, color: 'var(--color-accent-2)' }}>{error}</div>}
-        <button type="submit" className="btn btn-primary btn-block" disabled={loading} style={{ marginTop: 4 }}>{loading ? 'Signing in…' : 'Sign in'}</button>
-      </form>
-      <div className="text-muted" style={{ marginTop: 24, fontSize: 12, textAlign: 'center' }}>
-        Demo accounts — password <strong style={{ color: 'var(--color-text)' }}>Flowdesk123!</strong> for all
-        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {DEMO_ACCOUNTS.map((a) => <span key={a.email}>{a.email} — {a.role}</span>)}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 const INITIAL_STATE = {
   // auth — checked once on mount before anything else renders
   authChecked: false,
   currentUser: null,
+  preAuthView: 'landing',
+  authMode: 'signin',
+  signupName: '',
   loginEmail: '',
   loginPassword: '',
+  confirmPassword: '',
+  otp: '',
+  otpFlow: '',
+  resetToken: '',
   loginError: '',
   loginLoading: false,
   view: 'dashboard',
@@ -226,6 +206,8 @@ const INITIAL_STATE = {
   exchangeRate: null,
   googleConnected: false,
   googleSyncing: false,
+  planKey: null,
+  planFeatures: null,
   query: '',
   ownerFilter: 'all',
   draggedId: null,
@@ -271,17 +253,30 @@ const INITIAL_STATE = {
 }
 
 export default function App() {
-  const [state, setState] = useState(() => ({
-    ...INITIAL_STATE,
-    view: localStorage.getItem(VIEW_KEY) || INITIAL_STATE.view,
-    currency: localStorage.getItem(CURRENCY_KEY) || INITIAL_STATE.currency,
-  }))
+  const [state, setState] = useState(() => {
+    // otp/reset depend on a code and a reset token that are deliberately never
+    // persisted (short-lived, security-sensitive) — restoring those two modes
+    // after a refresh would show an unusable form, so land back on 'forgot' instead.
+    const storedMode = localStorage.getItem(PREAUTH_MODE_KEY)
+    const authMode = storedMode === 'otp' || storedMode === 'reset' ? 'forgot' : storedMode || INITIAL_STATE.authMode
+    return {
+      ...INITIAL_STATE,
+      view: localStorage.getItem(VIEW_KEY) || INITIAL_STATE.view,
+      currency: localStorage.getItem(CURRENCY_KEY) || INITIAL_STATE.currency,
+      preAuthView: localStorage.getItem(PREAUTH_VIEW_KEY) || INITIAL_STATE.preAuthView,
+      authMode,
+    }
+  })
   const patch = (upd) => setState((s) => ({ ...s, ...(typeof upd === 'function' ? upd(s) : upd) }))
 
   // Remember the current screen across refreshes — cleared on logout (setAuthToken)
   // so a fresh login always lands on the default (Dashboard), not the last screen.
   useEffect(() => { localStorage.setItem(VIEW_KEY, state.view) }, [state.view])
   useEffect(() => { localStorage.setItem(CURRENCY_KEY, state.currency) }, [state.currency])
+  // Same idea pre-login: a refresh on /login or /signup shouldn't bounce back to
+  // the marketing landing page, and the sign-in/sign-up tab should stick too.
+  useEffect(() => { localStorage.setItem(PREAUTH_VIEW_KEY, state.preAuthView) }, [state.preAuthView])
+  useEffect(() => { localStorage.setItem(PREAUTH_MODE_KEY, state.authMode) }, [state.authMode])
 
   // Live USD->IDR rate for the currency toggle — same source data Google's converter
   // widget draws from. Falls back to FALLBACK_USD_IDR if the fetch fails.
@@ -306,19 +301,21 @@ export default function App() {
   }, [])
 
   // Step 2: once logged in, load the CRM data. Fires again after a fresh login (currentUser flips from null).
+  // Platform super users have no org data — they get PlatformConsole instead, so skip the CRM load entirely.
   useEffect(() => {
-    if (!state.currentUser) return
+    if (!state.currentUser || state.currentUser.isPlatform) return
     (async () => {
       try {
-        const [owners, deals, leads, customFields, autoRules, chatter, activitiesFeed, calendarEvents, googleStatus] = await Promise.all([
+        const [owners, deals, leads, customFields, autoRules, chatter, activitiesFeed, calendarEvents, googleStatus, orgPlan] = await Promise.all([
           api('/api/owners'), api('/api/deals'), api('/api/leads'), api('/api/custom-fields'),
           api('/api/automation-rules'), api('/api/deal-notes'), api('/api/activities?limit=5'), api('/api/calendar-events'),
-          api('/api/google/status'),
+          api('/api/google/status'), api('/api/org/plan'),
         ])
         patch({
           loaded: true, owners: Object.fromEntries(owners.map((o) => [o.id, o])),
           deals, leads, customFields, autoRules, chatter, activitiesFeed, calendarEvents,
           googleConnected: googleStatus.connected,
+          planKey: orgPlan.key, planFeatures: orgPlan.features,
         })
         if (location.hash.includes('google=connected')) {
           notify('Google Calendar connected')
@@ -341,6 +338,92 @@ export default function App() {
       if (!res.ok) throw new Error(data.error === 'invalid_credentials' ? 'Email or password is wrong' : 'Login failed')
       setAuthToken(data.token)
       patch({ currentUser: data.user, loginLoading: false, loginPassword: '' })
+    } catch (err) {
+      patch({ loginError: err.message, loginLoading: false })
+    }
+  }
+  // Step 1/2 — stages the signup and emails an OTP; the account isn't created
+  // until doVerifySignupOtp succeeds (see backend /api/auth/signup).
+  const doSignup = async () => {
+    patch({ loginLoading: true, loginError: '' })
+    try {
+      const res = await fetch(API + '/api/auth/signup', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: state.signupName, email: state.loginEmail, password: state.loginPassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error === 'email_taken' ? 'An account with that email already exists' : data.error || 'Sign up failed')
+      patch({ loginLoading: false, authMode: 'otp', otpFlow: 'signup', otp: '' })
+      notify(data.message || 'Check your email for the code')
+    } catch (err) {
+      patch({ loginError: err.message, loginLoading: false })
+    }
+  }
+  const doRequestOtp = async () => {
+    patch({ loginLoading: true, loginError: '' })
+    try {
+      const res = await fetch(API + '/api/auth/forgot-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: state.loginEmail }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error === 'email_not_registered' ? 'No account found with that email' : data.error || 'Failed to send code')
+      patch({ loginLoading: false, authMode: 'otp', otpFlow: 'reset', otp: '' })
+      notify(data.message || 'Check your email for the code')
+    } catch (err) {
+      patch({ loginError: err.message, loginLoading: false })
+    }
+  }
+  // Same OTP screen serves both flows — dispatch to the right endpoint/outcome
+  // based on which one led here (signup logs straight in; reset moves to the
+  // new-password step).
+  const doVerifyOtp = async () => {
+    if (state.otpFlow === 'signup') return doVerifySignupOtp()
+    patch({ loginLoading: true, loginError: '' })
+    try {
+      const res = await fetch(API + '/api/auth/verify-otp', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: state.loginEmail, otp: state.otp }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error === 'invalid_or_expired_otp' ? 'That code is wrong or has expired' : 'Verification failed')
+      patch({ loginLoading: false, authMode: 'reset', resetToken: data.resetToken, otp: '', loginPassword: '', confirmPassword: '' })
+    } catch (err) {
+      patch({ loginError: err.message, loginLoading: false })
+    }
+  }
+  const doVerifySignupOtp = async () => {
+    patch({ loginLoading: true, loginError: '' })
+    try {
+      const res = await fetch(API + '/api/auth/signup/verify-otp', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: state.loginEmail, otp: state.otp }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error === 'invalid_or_expired_otp' ? 'That code is wrong or has expired' : data.error === 'email_taken' ? 'An account with that email already exists' : 'Verification failed')
+      setAuthToken(data.token)
+      patch({ currentUser: data.user, loginLoading: false, loginPassword: '', otp: '' })
+    } catch (err) {
+      patch({ loginError: err.message, loginLoading: false })
+    }
+  }
+  // Resend reuses whichever request-otp call started this flow.
+  const doResendOtp = () => (state.otpFlow === 'signup' ? doSignup() : doRequestOtp())
+  const doResetPassword = async () => {
+    if (state.loginPassword !== state.confirmPassword) {
+      patch({ loginError: "Passwords don't match" })
+      return
+    }
+    patch({ loginLoading: true, loginError: '' })
+    try {
+      const res = await fetch(API + '/api/auth/reset-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resetToken: state.resetToken, password: state.loginPassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to reset password')
+      patch({ loginLoading: false, authMode: 'signin', loginPassword: '', confirmPassword: '', resetToken: '' })
+      notify('Password updated — sign in with your new password')
     } catch (err) {
       patch({ loginError: err.message, loginLoading: false })
     }
@@ -565,12 +648,23 @@ export default function App() {
     return <div className="app-spinner"><i className="ph-duotone ph-spinner"></i></div>
   }
   if (!S.currentUser) {
+    if (S.preAuthView !== 'login') {
+      return <LandingPage onGetStarted={() => patch({ preAuthView: 'login' })} />
+    }
     return (
-      <LoginScreen
-        email={S.loginEmail} password={S.loginPassword} error={S.loginError} loading={S.loginLoading}
-        onEmail={(v) => patch({ loginEmail: v })} onPassword={(v) => patch({ loginPassword: v })} onSubmit={doLogin}
+      <SignInScreen
+        mode={S.authMode} name={S.signupName} email={S.loginEmail} password={S.loginPassword}
+        otp={S.otp} confirmPassword={S.confirmPassword} error={S.loginError} loading={S.loginLoading}
+        onName={(v) => patch({ signupName: v })} onEmail={(v) => patch({ loginEmail: v })} onPassword={(v) => patch({ loginPassword: v })}
+        onOtp={(v) => patch({ otp: v })} onConfirmPassword={(v) => patch({ confirmPassword: v })}
+        onModeChange={(m) => patch({ authMode: m, loginError: '' })}
+        onSubmit={doLogin} onSignUp={doSignup} onRequestOtp={doRequestOtp} onVerifyOtp={doVerifyOtp} onResendOtp={doResendOtp} onResetPassword={doResetPassword}
+        onBack={() => patch({ preAuthView: 'landing' })}
       />
     )
+  }
+  if (S.currentUser.isPlatform) {
+    return <PlatformConsole api={api} user={S.currentUser} onLogout={doLogout} notify={notify} />
   }
   if (S.loadError) {
     return <div style={{ padding: 40, fontFamily: 'system-ui' }}>Couldn't reach the API at {API} — {S.loadError}. Is the backend running (`docker-compose up`)?</div>
@@ -742,12 +836,18 @@ export default function App() {
   const isAdminOrManager = role === 'admin' || role === 'lead_sales'
   const canWrite = true // ponytail: no read-only role anymore, analyst was retired
 
+  // Plan gating (Plus/Pro/Custom) layers on top of role gating — a Plus org's
+  // admin still can't see Reports/Studio, since those aren't on their plan.
+  // planFeatures is null for one tick before /api/org/plan resolves; default
+  // every screen open during that gap rather than flashing the nav empty.
+  const planAllows = (key) => S.planFeatures?.[key] ?? true
   const navItem = (id, name, icon) => ({ id, name, icon, current: S.view === id ? 'page' : undefined, onClick: (e) => { e.preventDefault(); patch({ view: id, selectedId: null }) } })
   const nav = [
     navItem('dashboard', 'Dashboard', 'ph-squares-four'), navItem('pipeline', 'Pipeline', 'ph-kanban'),
     navItem('leads', 'Leads', 'ph-magnet-straight'), navItem('contacts', 'Contacts', 'ph-users'),
-    navItem('calendar', 'Calendar', 'ph-calendar-dots'), navItem('reports', 'Reports', 'ph-chart-line-up'),
-    ...(isAdminOrManager ? [navItem('studio', 'Studio', 'ph-blueprint')] : []),
+    navItem('calendar', 'Calendar', 'ph-calendar-dots'),
+    ...(planAllows('reports') ? [navItem('reports', 'Reports', 'ph-chart-line-up')] : []),
+    ...(isAdminOrManager && planAllows('studio') ? [navItem('studio', 'Studio', 'ph-blueprint')] : []),
   ]
   const ownerOptions = [{ id: 'all', name: 'All owners' }, ...Object.values(S.owners).map((o) => ({ id: o.id, name: o.name }))]
 
